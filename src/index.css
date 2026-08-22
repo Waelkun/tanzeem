@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-ink-950 text-ink-100 font-sans antialiased;
+    background-image:
+      radial-gradient(60rem 60rem at 85% -10%, rgba(52, 185, 138, 0.10), transparent 55%),
+      radial-gradient(50rem 50rem at 0% 100%, rgba(52, 185, 138, 0.06), transparent 55%);
+    background-attachment: fixed;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Western digits inside mono runs for stats/timers */
+  .nums {
+    font-family: theme('fontFamily.mono');
+    font-feature-settings: 'tnum';
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background: rgba(52, 185, 138, 0.3);
+  }
+
+  /* Slim, unobtrusive scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+  }
+}
+
+@layer components {
+  /* Liquid-glass surface: blur + refraction edge + tinted depth */
+  .glass {
+    @apply bg-ink-900/60 backdrop-blur-xl border border-white/10 shadow-glass;
+    box-shadow:
+      0 20px 40px -20px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .glass-soft {
+    @apply bg-ink-850/50 backdrop-blur-lg border border-white/[0.07];
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .skeleton {
+    @apply rounded-xl bg-ink-800/80 relative overflow-hidden;
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.06) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    @apply animate-shimmer;
+  }
+
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950;
+  }
+
+  /* Compact markdown rendering inside chat/review bubbles */
+  .prose-chat p {
+    @apply my-1;
+  }
+  .prose-chat ul {
+    @apply my-1 ps-4 list-disc space-y-0.5;
+  }
+  .prose-chat ol {
+    @apply my-1 ps-4 list-decimal space-y-0.5;
+  }
+  .prose-chat strong {
+    @apply font-semibold;
+  }
+  .prose-chat code {
+    @apply px-1 py-0.5 rounded bg-black/20 text-[0.85em];
+  }
+  .prose-chat h1,
+  .prose-chat h2,
+  .prose-chat h3 {
+    @apply font-semibold my-1.5;
+  }
+}
+
+/* PDF export: a page-level .print-report is kept in the DOM but hidden on
+   screen; the summary's "تصدير PDF" button calls window.print(), and these
+   rules reveal only that report with a light, ink-on-paper palette. */
+.print-report {
+  display: none;
+}
+@media print {
+  body {
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-report {
+    display: block;
+    visibility: visible;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    padding: 28px 32px;
+    background: #fff !important;
+    border: none !important;
+  }
+  .print-report * {
+    visibility: visible;
+    color: #111 !important;
+    box-shadow: none !important;
+  }
+  .print-report .print-card {
+    border: 1px solid #e2e2e2 !important;
+    background: #fff !important;
+    break-inside: avoid;
+  }
+  .print-report .print-dot {
+    background: #111 !important;
+  }
+}

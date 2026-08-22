@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-ssr
+dev-dist
+*.local
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+!.env.production
+.DS_Store
+supabase/.temp
