@@ -40,19 +40,43 @@ export function computeStreak(tasks: Task[], sessions: Session[]): number {
 export interface WeekStats {
   totalHours: number
   totalSeconds: number
-  perDay: { day: string; hours: number; seconds: number; tasks: number }[]
+  perDay: { day: string; dayIndex: number; hours: number; seconds: number; tasks: number }[]
   mostProductiveDay: string | null
   mostProductiveHour: number | null
   tasksCompleted: number
   completedTasks: { id: string; title: string; at: string }[]
+  perTask: TaskTime[]
   weekStart: Date
   weekEnd: Date
 }
 
+export interface TaskTime {
+  id: string
+  title: string
+  seconds: number
+}
+
+export interface TaskDetail {
+  id: string
+  title: string
+  totalSeconds: number
+  /** Full week, Monday→Sunday, so days with no work still show as gaps. */
+  perDay: { day: string; dayIndex: number; seconds: number }[]
+  /** Individual work sessions, newest first — the "when". */
+  sessions: { at: string; seconds: number }[]
+}
+
 // Indexed by JS getDay(): 0 = Sunday … 6 = Saturday.
-const AR_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+export const AR_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
 // Week reading order, starting Monday.
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]
+
+// Sessions with no task_id are grouped under this synthetic id.
+const UNSPECIFIED = '__unspecified__'
+
+function taskTitle(id: string, titleById: Map<string, string>): string {
+  return id === UNSPECIFIED ? 'وقت غير مرتبط بمهمة' : titleById.get(id) ?? 'مهمة محذوفة'
+}
 
 /**
  * Compute stats for the week containing `refDate` (Monday-start). Pass a date in
@@ -78,6 +102,9 @@ export function weekStats(tasks: Task[], sessions: Session[], refDate: Date = ne
     hourBuckets[d.getHours()] += s.duration_seconds
   })
 
+  // Whole-week per-task breakdown (dayIndex = null → no day filter).
+  const { perTask } = taskBreakdown(tasks, sessions, weekStart, weekEnd, null)
+
   const completedTasks: { id: string; title: string; at: string }[] = []
   tasks.forEach((t) => {
     if (t.status === 'done' && t.completed_at && within(t.completed_at)) {
@@ -92,6 +119,7 @@ export function weekStats(tasks: Task[], sessions: Session[], refDate: Date = ne
     const v = perDayMap.get(day)!
     return {
       day: AR_DAYS[day],
+      dayIndex: day,
       hours: Math.round((v.seconds / 3600) * 100) / 100,
       seconds: v.seconds,
       tasks: v.tasks,
@@ -124,7 +152,113 @@ export function weekStats(tasks: Task[], sessions: Session[], refDate: Date = ne
     mostProductiveHour,
     tasksCompleted: completedTasks.length,
     completedTasks,
+    perTask,
     weekStart,
     weekEnd,
   }
+}
+
+/**
+ * Per-task time within [weekStart, weekEnd]. Pass `dayIndex` (JS getDay(): 0=Sun…6=Sat)
+ * to restrict to a single day of that week; `null` covers the whole week. Sorted desc.
+ */
+export function taskBreakdown(
+  tasks: Task[],
+  sessions: Session[],
+  weekStart: Date,
+  weekEnd: Date,
+  dayIndex: number | null = null,
+): { perTask: TaskTime[]; totalSeconds: number } {
+  const titleById = new Map(tasks.map((t) => [t.id, t.title]))
+  const map = new Map<string, number>()
+  let totalSeconds = 0
+
+  sessions.forEach((s) => {
+    const d = parseISO(s.started_at)
+    if (!isWithinInterval(d, { start: weekStart, end: weekEnd })) return
+    if (dayIndex != null && d.getDay() !== dayIndex) return
+    const key = s.task_id ?? UNSPECIFIED
+    map.set(key, (map.get(key) ?? 0) + s.duration_seconds)
+    totalSeconds += s.duration_seconds
+  })
+
+  const perTask = [...map.entries()]
+    .filter(([, sec]) => sec > 0)
+    .map(([id, seconds]) => ({ id, title: taskTitle(id, titleById), seconds }))
+    .sort((a, b) => b.seconds - a.seconds)
+
+  return { perTask, totalSeconds }
+}
+
+/**
+ * A day × task matrix for the week: `tasks` are the week's task totals (sorted desc — this
+ * defines a stable stack order and color assignment), and `days` is Monday→Sunday, each
+ * carrying its total plus a taskId→seconds map. Used to stack the per-day chart by task.
+ */
+export function weekTaskDayMatrix(
+  tasks: Task[],
+  sessions: Session[],
+  weekStart: Date,
+  weekEnd: Date,
+): {
+  tasks: TaskTime[]
+  days: { day: string; dayIndex: number; total: number; perTask: Record<string, number> }[]
+} {
+  const { perTask } = taskBreakdown(tasks, sessions, weekStart, weekEnd, null)
+
+  const dayMap = new Map<number, { total: number; perTask: Record<string, number> }>()
+  for (let i = 0; i < 7; i++) dayMap.set(i, { total: 0, perTask: {} })
+
+  sessions.forEach((s) => {
+    const d = parseISO(s.started_at)
+    if (!isWithinInterval(d, { start: weekStart, end: weekEnd })) return
+    const bucket = dayMap.get(d.getDay())!
+    const key = s.task_id ?? UNSPECIFIED
+    bucket.perTask[key] = (bucket.perTask[key] ?? 0) + s.duration_seconds
+    bucket.total += s.duration_seconds
+  })
+
+  const days = WEEK_ORDER.map((day) => {
+    const v = dayMap.get(day)!
+    return { day: AR_DAYS[day], dayIndex: day, total: v.total, perTask: v.perTask }
+  })
+
+  return { tasks: perTask, days }
+}
+
+/**
+ * Detail for a single task within [weekStart, weekEnd]: total time, a Monday→Sunday
+ * per-day breakdown, and each individual session (newest first). `taskId` may be the
+ * synthetic "unspecified" id used for sessions with no task.
+ */
+export function taskDetail(
+  taskId: string,
+  tasks: Task[],
+  sessions: Session[],
+  weekStart: Date,
+  weekEnd: Date,
+): TaskDetail {
+  const titleById = new Map(tasks.map((t) => [t.id, t.title]))
+  const perDayMap = new Map<number, number>()
+  for (let i = 0; i < 7; i++) perDayMap.set(i, 0)
+  const matched: { at: string; seconds: number }[] = []
+  let totalSeconds = 0
+
+  sessions.forEach((s) => {
+    if ((s.task_id ?? UNSPECIFIED) !== taskId) return
+    const d = parseISO(s.started_at)
+    if (!isWithinInterval(d, { start: weekStart, end: weekEnd })) return
+    perDayMap.set(d.getDay(), perDayMap.get(d.getDay())! + s.duration_seconds)
+    totalSeconds += s.duration_seconds
+    matched.push({ at: s.started_at, seconds: s.duration_seconds })
+  })
+
+  const perDay = WEEK_ORDER.map((day) => ({
+    day: AR_DAYS[day],
+    dayIndex: day,
+    seconds: perDayMap.get(day)!,
+  }))
+  matched.sort((a, b) => b.at.localeCompare(a.at))
+
+  return { id: taskId, title: taskTitle(taskId, titleById), totalSeconds, perDay, sessions: matched }
 }

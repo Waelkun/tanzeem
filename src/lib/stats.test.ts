@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { computeStreak, tasksDoneToday, todaySeconds, weekStats } from './stats'
+import {
+  computeStreak,
+  taskBreakdown,
+  taskDetail,
+  tasksDoneToday,
+  todaySeconds,
+  weekStats,
+  weekTaskDayMatrix,
+} from './stats'
 import type { Session, Task } from './types'
 
 function task(p: Partial<Task>): Task {
@@ -64,6 +72,80 @@ describe('weekStats', () => {
     const s = weekStats(tasks, [], monNoon)
     expect(s.tasksCompleted).toBe(2)
     expect(s.completedTasks.map((t) => t.title)).toEqual(['B', 'A'])
+  })
+})
+
+describe('taskBreakdown', () => {
+  const weekStart = new Date(2026, 0, 5, 0, 0) // Mon
+  const weekEnd = new Date(2026, 0, 11, 23, 59, 59) // Sun
+  const tasks = [task({ id: 't1', title: 'التقديم' }), task({ id: 't2', title: 'دراسة' })]
+  const sessions = [
+    session({ task_id: 't1', started_at: monNoon.toISOString(), duration_seconds: 1800 }), // Mon 30m
+    session({ task_id: 't1', started_at: wedNoon.toISOString(), duration_seconds: 5400 }), // Wed 90m
+    session({ task_id: 't2', started_at: wedNoon.toISOString(), duration_seconds: 600 }), // Wed 10m
+    session({ task_id: null, started_at: monNoon.toISOString(), duration_seconds: 120 }), // untracked Mon
+  ]
+
+  it('aggregates per task across the week, sorted desc, resolving titles', () => {
+    const { perTask, totalSeconds } = taskBreakdown(tasks, sessions, weekStart, weekEnd, null)
+    expect(totalSeconds).toBe(1800 + 5400 + 600 + 120)
+    expect(perTask.map((t) => [t.title, t.seconds])).toEqual([
+      ['التقديم', 7200],
+      ['دراسة', 600],
+      ['وقت غير مرتبط بمهمة', 120],
+    ])
+  })
+
+  it('filters to a single weekday when dayIndex is given', () => {
+    // Wednesday = getDay() 3
+    const { perTask, totalSeconds } = taskBreakdown(tasks, sessions, weekStart, weekEnd, 3)
+    expect(totalSeconds).toBe(5400 + 600)
+    expect(perTask.map((t) => [t.title, t.seconds])).toEqual([
+      ['التقديم', 5400],
+      ['دراسة', 600],
+    ])
+  })
+})
+
+describe('taskDetail', () => {
+  const weekStart = new Date(2026, 0, 5, 0, 0)
+  const weekEnd = new Date(2026, 0, 11, 23, 59, 59)
+  const tasks = [task({ id: 't1', title: 'التقديم' })]
+  const sessions = [
+    session({ task_id: 't1', started_at: monNoon.toISOString(), duration_seconds: 1800 }), // Mon
+    session({ task_id: 't1', started_at: wedNoon.toISOString(), duration_seconds: 5400 }), // Wed
+    session({ task_id: 't1', started_at: new Date(2026, 0, 20, 12).toISOString(), duration_seconds: 999 }), // outside week
+  ]
+
+  it('totals the task within the week and breaks it down Mon→Sun', () => {
+    const d = taskDetail('t1', tasks, sessions, weekStart, weekEnd)
+    expect(d.title).toBe('التقديم')
+    expect(d.totalSeconds).toBe(7200) // excludes the out-of-week 999
+    expect(d.perDay).toHaveLength(7)
+    expect(d.perDay[0]).toMatchObject({ day: 'الاثنين', seconds: 1800 })
+    expect(d.perDay[2]).toMatchObject({ day: 'الأربعاء', seconds: 5400 })
+    expect(d.sessions).toHaveLength(2) // the "when", newest first
+    expect(d.sessions[0].seconds).toBe(5400)
+  })
+})
+
+describe('weekTaskDayMatrix', () => {
+  const weekStart = new Date(2026, 0, 5, 0, 0)
+  const weekEnd = new Date(2026, 0, 11, 23, 59, 59)
+  const tasks = [task({ id: 't1', title: 'التقديم' }), task({ id: 't2', title: 'دراسة' })]
+  const sessions = [
+    session({ task_id: 't1', started_at: monNoon.toISOString(), duration_seconds: 1800 }), // Mon
+    session({ task_id: 't1', started_at: wedNoon.toISOString(), duration_seconds: 5400 }), // Wed
+    session({ task_id: 't2', started_at: wedNoon.toISOString(), duration_seconds: 600 }), // Wed
+  ]
+
+  it('returns 7 days Mon→Sun with per-task seconds and totals', () => {
+    const { tasks: ranked, days } = weekTaskDayMatrix(tasks, sessions, weekStart, weekEnd)
+    expect(ranked.map((t) => t.id)).toEqual(['t1', 't2']) // sorted desc by week total
+    expect(days).toHaveLength(7)
+    expect(days[0]).toMatchObject({ day: 'الاثنين', total: 1800, perTask: { t1: 1800 } }) // Mon
+    expect(days[2]).toMatchObject({ day: 'الأربعاء', total: 6000, perTask: { t1: 5400, t2: 600 } }) // Wed
+    expect(days[6]).toMatchObject({ day: 'الأحد', total: 0, perTask: {} }) // Sun empty
   })
 })
 
