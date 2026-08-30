@@ -92,6 +92,7 @@ export type Database = {
           content: string
           created_at: string
           id: string
+          provider: string | null
           role: Database['public']['Enums']['chat_role']
           tool_call: Json | null
         }
@@ -99,6 +100,7 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          provider?: string | null
           role: Database['public']['Enums']['chat_role']
           tool_call?: Json | null
         }
@@ -106,6 +108,7 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          provider?: string | null
           role?: Database['public']['Enums']['chat_role']
           tool_call?: Json | null
         }

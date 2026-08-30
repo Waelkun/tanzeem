@@ -16,6 +16,8 @@ interface Msg {
   content: string
   tool_call?: ProposedToolCall | null
   confirmed?: boolean
+  /** Which AI provider produced this assistant reply (e.g. "Gemini"). */
+  provider?: string | null
 }
 
 const SUGGESTIONS = ['ما هي مهامي اليوم؟', 'كم ساعة عملت هذا الأسبوع؟', 'أضف مهمة: مراجعة التقرير غداً 5 مساءً']
@@ -44,6 +46,7 @@ export function AISidePanel({ onClose }: { onClose: () => void }) {
               content: m.content,
               tool_call: (m.tool_call as ProposedToolCall | null) ?? null,
               confirmed: true,
+              provider: m.provider ?? null,
             })),
           )
         }
@@ -65,7 +68,11 @@ export function AISidePanel({ onClose }: { onClose: () => void }) {
 
     try {
       const history = messages.slice(-10).map((m) => ({ role: m.role, content: m.content }))
-      const res = await invokeFunction<{ reply: string; tool_call?: ProposedToolCall | null }>('ai-chat', {
+      const res = await invokeFunction<{
+        reply: string
+        tool_call?: ProposedToolCall | null
+        provider?: string | null
+      }>('ai-chat', {
         message: content,
         history,
       })
@@ -85,11 +92,15 @@ export function AISidePanel({ onClose }: { onClose: () => void }) {
         role: 'assistant',
         content: replyText,
         tool_call: normalizedCall,
+        provider: res.provider ?? null,
       }
       setMessages((m) => [...m, aMsg])
-      void supabase
-        .from('chat_messages')
-        .insert({ role: 'assistant', content: replyText, tool_call: (normalizedCall ?? null) as unknown as Json })
+      void supabase.from('chat_messages').insert({
+        role: 'assistant',
+        content: replyText,
+        tool_call: (normalizedCall ?? null) as unknown as Json,
+        provider: res.provider ?? null,
+      })
     } catch (e) {
       setMessages((m) => [
         ...m,
@@ -116,6 +127,8 @@ export function AISidePanel({ onClose }: { onClose: () => void }) {
       )
       qc.invalidateQueries({ queryKey: qk.tasks })
       qc.invalidateQueries({ queryKey: qk.settings })
+      qc.invalidateQueries({ queryKey: qk.goals })
+      qc.invalidateQueries({ queryKey: qk.goalProgress })
     } catch {
       setMessages((m) => [...m, { id: crypto.randomUUID(), role: 'assistant', content: 'تعذّر تنفيذ الإجراء.' }])
     }
@@ -253,6 +266,13 @@ function Bubble({
         <div className="text-sm leading-relaxed prose-chat">
           {isUser ? msg.content : <ReactMarkdown>{msg.content}</ReactMarkdown>}
         </div>
+
+        {!isUser && msg.provider && (
+          <p className="mt-1.5 text-[10px] text-ink-500 flex items-center gap-1">
+            <Sparkle size={10} weight="fill" className="opacity-70" />
+            {msg.provider}
+          </p>
+        )}
 
         {msg.tool_call && !msg.confirmed && (
           <div className="mt-2.5 pt-2.5 border-t border-white/10">

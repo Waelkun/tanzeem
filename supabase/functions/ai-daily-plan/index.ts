@@ -1,5 +1,6 @@
 import { cors, json, admin, getConfig, checkApiKey } from '../_shared/util.ts'
 import { buildUserData } from '../_shared/context.ts'
+import { chatComplete, getProviders } from '../_shared/llm.ts'
 
 const SYSTEM = `أنت مخطّط يومي داخل تطبيق «منصة تنظيم». مهمتك اقتراح جدول لليوم من المهام النشطة الحقيقية فقط.
 قواعد صارمة:
@@ -33,6 +34,8 @@ Deno.serve(async (req) => {
     const sb = admin()
     const cfg = await getConfig(sb)
     if (!checkApiKey(req, cfg.APP_ANON_KEY)) return json({ error: 'unauthorized' }, 401)
+    const providers = getProviders(cfg)
+    if (providers.length === 0) return json({ error: 'no AI providers configured' }, 500)
     const body = await req.json().catch(() => ({}))
     const tz = typeof body?.tz === 'string' ? body.tz : undefined
     const { contextText, activeTasks } = await buildUserData(sb, tz)
@@ -41,28 +44,18 @@ Deno.serve(async (req) => {
       return json({ plan: [], summary: 'لا توجد مهام معلّقة لجدولتها اليوم.' })
     }
 
-    const res = await fetch(`${cfg.NVIDIA_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${cfg.NVIDIA_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: cfg.NVIDIA_MODEL,
-        messages: [
-          { role: 'system', content: SYSTEM },
-          { role: 'user', content: `السياق:\n${contextText}\n\nاقترح خطة اليوم الآن بصيغة JSON فقط.` },
-        ],
-        temperature: 0.3,
-        max_tokens: 1200,
-      }),
+    const result = await chatComplete(providers, {
+      messages: [
+        { role: 'system', content: SYSTEM },
+        { role: 'user', content: `السياق:\n${contextText}\n\nاقترح خطة اليوم الآن بصيغة JSON فقط.` },
+      ],
+      temperature: 0.3,
+      max_tokens: 4000,
+      response_format: { type: 'json_object' },
     })
 
-    if (!res.ok) {
-      const text = await res.text()
-      return json({ error: `NVIDIA error: ${text.slice(0, 300)}` }, 502)
-    }
-
-    const data = await res.json()
-    const content = data.choices?.[0]?.message?.content ?? ''
-    const parsed = extractJson(content) as { summary?: string; plan?: unknown[] } | null
+    const content = result.message?.content ?? ''
+    const parsed = extractJson(String(content)) as { summary?: string; plan?: unknown[] } | null
 
     if (!parsed || !Array.isArray(parsed.plan)) {
       return json({ plan: [], summary: 'تعذّر توليد خطة صالحة. حاول مرة أخرى.' })

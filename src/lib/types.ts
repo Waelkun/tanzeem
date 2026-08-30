@@ -9,6 +9,7 @@ export type TaskUpdate = T['tasks']['Update']
 
 export type Goal = T['goals']['Row']
 export type GoalInsert = T['goals']['Insert']
+export type GoalUpdate = T['goals']['Update']
 
 export type Session = T['sessions']['Row']
 export type SessionInsert = T['sessions']['Insert']
@@ -37,7 +38,17 @@ export interface DailyPlanItem {
 
 /** A proposed AI tool call awaiting user confirmation. */
 export interface ProposedToolCall {
-  name: 'add_task' | 'complete_task' | 'schedule_task' | 'set_pomodoro' | 'get_progress'
+  name:
+    | 'add_task'
+    | 'complete_task'
+    | 'schedule_task'
+    | 'edit_task'
+    | 'delete_task'
+    | 'create_goal'
+    | 'edit_goal'
+    | 'set_pomodoro'
+    | 'update_settings'
+    | 'get_progress'
   arguments: Record<string, unknown>
 }
 

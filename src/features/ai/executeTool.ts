@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
-import type { ProposedToolCall, Settings, TaskPriority } from '@/lib/types'
+import type { GoalInsert, GoalUpdate, ProposedToolCall, Settings, TaskPriority, TaskStatus, TaskUpdate } from '@/lib/types'
+import { PRIORITY_LABELS } from '@/lib/types'
 
 /**
  * For a proposed add_task, ensure due_date is sane: default a missing date to
@@ -63,8 +64,41 @@ export function describeToolCall(tc: ProposedToolCall, taskTitleById?: Map<strin
       return `إكمال المهمة: «${taskName}»`
     case 'schedule_task':
       return `جدولة «${taskName}» من ${fmtAr(a.scheduled_start)} إلى ${fmtAr(a.scheduled_end)}`
+    case 'edit_task': {
+      const parts: string[] = []
+      if (a.title != null) parts.push(`العنوان → «${a.title}»`)
+      if (a.priority != null) parts.push(`الأولوية → ${PRIORITY_LABELS[a.priority as TaskPriority] ?? a.priority}`)
+      if (a.category != null) parts.push(`الفئة → ${a.category}`)
+      if (a.status != null) parts.push(`الحالة → ${a.status}`)
+      if (a.due_date != null) parts.push(`الاستحقاق → ${fmtAr(a.due_date)}`)
+      if (a.notes != null) parts.push('تحديث الملاحظات')
+      return `تعديل «${taskName}»${parts.length ? `: ${parts.join('، ')}` : ''}`
+    }
+    case 'delete_task':
+      return `⚠️ حذف المهمة نهائياً: «${taskName}»`
+    case 'create_goal':
+      return `إنشاء هدف: «${a.title}»${a.target_hours ? ` — ${a.target_hours} ساعة مستهدفة` : ''}`
+    case 'edit_goal': {
+      const parts: string[] = []
+      if (a.title != null) parts.push(`العنوان → «${a.title}»`)
+      if (a.target_hours != null) parts.push(`الساعات المستهدفة → ${a.target_hours}`)
+      if (a.archived != null) parts.push(a.archived ? 'أرشفة' : 'إلغاء الأرشفة')
+      return `تعديل الهدف${parts.length ? `: ${parts.join('، ')}` : ''}`
+    }
     case 'set_pomodoro':
       return `ضبط بومودورو: تركيز ${a.focus_min} د / استراحة ${a.break_min} د`
+    case 'update_settings': {
+      const parts: string[] = []
+      if (a.pomodoro_focus_min != null) parts.push(`تركيز ${a.pomodoro_focus_min} د`)
+      if (a.pomodoro_break_min != null) parts.push(`استراحة ${a.pomodoro_break_min} د`)
+      if (a.pomodoro_cycles != null) parts.push(`${a.pomodoro_cycles} دورات`)
+      if (a.theme != null) parts.push(`السمة → ${a.theme}`)
+      if (a.timezone != null) parts.push(`المنطقة الزمنية → ${a.timezone}`)
+      if (a.notif_task_reminders != null) parts.push(`تذكيرات المهام → ${a.notif_task_reminders ? 'مفعّلة' : 'معطّلة'}`)
+      if (a.notif_pomodoro != null) parts.push(`تنبيه البومودورو → ${a.notif_pomodoro ? 'مفعّل' : 'معطّل'}`)
+      if (a.notif_daily_plan != null) parts.push(`تنبيه الخطة اليومية → ${a.notif_daily_plan ? 'مفعّل' : 'معطّل'}`)
+      return `تعديل الإعدادات${parts.length ? `: ${parts.join('، ')}` : ''}`
+    }
     case 'get_progress':
       return 'عرض تقدّمك الحالي'
     default:
@@ -106,6 +140,45 @@ export async function executeToolCall(tc: ProposedToolCall): Promise<string> {
       if (error) throw error
       return 'تمت جدولة المهمة.'
     }
+    case 'edit_task': {
+      const patch: TaskUpdate = {}
+      if (a.title != null) patch.title = String(a.title)
+      if (a.notes != null) patch.notes = String(a.notes)
+      if (a.priority != null) patch.priority = a.priority as TaskPriority
+      if (a.category != null) patch.category = String(a.category)
+      if (a.due_date != null) patch.due_date = String(a.due_date)
+      if (a.status != null) {
+        patch.status = a.status as TaskStatus
+        patch.completed_at = a.status === 'done' ? new Date().toISOString() : null
+      }
+      const { error } = await supabase.from('tasks').update(patch).eq('id', String(a.task_id))
+      if (error) throw error
+      return 'تم تعديل المهمة.'
+    }
+    case 'delete_task': {
+      const { error } = await supabase.from('tasks').delete().eq('id', String(a.task_id))
+      if (error) throw error
+      return 'تم حذف المهمة.'
+    }
+    case 'create_goal': {
+      const insert: GoalInsert = { title: String(a.title) }
+      if (a.description != null) insert.description = String(a.description)
+      if (a.target_hours != null) insert.target_hours = Number(a.target_hours)
+      if (a.color != null) insert.color = String(a.color)
+      const { error } = await supabase.from('goals').insert(insert)
+      if (error) throw error
+      return 'تم إنشاء الهدف.'
+    }
+    case 'edit_goal': {
+      const patch: GoalUpdate = {}
+      if (a.title != null) patch.title = String(a.title)
+      if (a.description != null) patch.description = String(a.description)
+      if (a.target_hours != null) patch.target_hours = Number(a.target_hours)
+      if (a.archived != null) patch.archived = Boolean(a.archived)
+      const { error } = await supabase.from('goals').update(patch).eq('id', String(a.goal_id))
+      if (error) throw error
+      return 'تم تعديل الهدف.'
+    }
     case 'set_pomodoro': {
       const patch: Partial<Settings> = {}
       if (a.focus_min != null) patch.pomodoro_focus_min = Number(a.focus_min)
@@ -114,6 +187,18 @@ export async function executeToolCall(tc: ProposedToolCall): Promise<string> {
       const { error } = await supabase.from('settings').update(patch).eq('id', 1)
       if (error) throw error
       return 'تم ضبط إعدادات البومودورو.'
+    }
+    case 'update_settings': {
+      const patch: Partial<Settings> = {}
+      const numKeys = ['pomodoro_focus_min', 'pomodoro_break_min', 'pomodoro_long_break_min', 'pomodoro_cycles'] as const
+      for (const k of numKeys) if (a[k] != null) (patch as Record<string, unknown>)[k] = Number(a[k])
+      const boolKeys = ['notif_task_reminders', 'notif_pomodoro', 'notif_daily_plan'] as const
+      for (const k of boolKeys) if (a[k] != null) (patch as Record<string, unknown>)[k] = Boolean(a[k])
+      if (a.theme != null) patch.theme = String(a.theme)
+      if (a.timezone != null) patch.timezone = String(a.timezone)
+      const { error } = await supabase.from('settings').update(patch).eq('id', 1)
+      if (error) throw error
+      return 'تم تحديث الإعدادات.'
     }
     default:
       return 'لا شيء لتنفيذه.'
