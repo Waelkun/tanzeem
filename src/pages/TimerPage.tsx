@@ -1,17 +1,20 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Coffee, Pause, Play, Stop, Timer as TimerIcon } from '@phosphor-icons/react'
+import { Coffee, Pause, PencilSimple, Play, Stop, Timer as TimerIcon, TrashSimple } from '@phosphor-icons/react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Select } from '@/components/ui/form'
 import { Segmented } from '@/components/ui/form'
 import { ProgressRing } from '@/components/ui/ProgressRing'
+import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/states'
-import { useSessions, useTasks } from '@/lib/queries'
+import { useDeleteSession, useSessions, useTasks } from '@/lib/queries'
 import { useTimerControls } from '@/features/timer/useTimerControls'
 import { useTick } from '@/features/timer/useTick'
+import { SessionEditModal } from '@/features/timer/SessionEditModal'
 import { elapsedSeconds, phaseTargetSeconds, useTimerStore } from '@/store/timerStore'
 import { fmtDuration, fmtDateTime } from '@/lib/dates'
-import type { SessionMode } from '@/lib/types'
+import type { Session, SessionMode } from '@/lib/types'
 
 const PHASE_LABEL = { focus: 'تركيز', break: 'استراحة', longbreak: 'استراحة طويلة' } as const
 
@@ -21,6 +24,9 @@ export default function TimerPage() {
   const store = useTimerStore()
   const { start, pause, resume, stop } = useTimerControls()
   useTick(store.status === 'running')
+  const del = useDeleteSession()
+  const [editing, setEditing] = useState<Session | null>(null)
+  const [deleting, setDeleting] = useState<Session | null>(null)
 
   const activeTasks = (tasks ?? []).filter((t) => t.status !== 'done')
   const tasksById = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t.title])), [tasks])
@@ -136,7 +142,7 @@ export default function TimerPage() {
           ) : (
             <div className="space-y-2">
               {sessions!.map((s) => (
-                <div key={s.id} className="flex items-center gap-3 glass-soft rounded-2xl px-3.5 py-2.5">
+                <div key={s.id} className="flex items-center gap-3 glass-soft rounded-2xl px-3.5 py-2.5 group">
                   <span
                     className={`grid place-items-center h-9 w-9 rounded-xl shrink-0 ${
                       s.mode === 'pomodoro' ? 'bg-priority-low/15 text-priority-low' : 'bg-accent-faint text-accent-strong'
@@ -149,12 +155,60 @@ export default function TimerPage() {
                     <p className="text-[11px] text-ink-500">{fmtDateTime(s.started_at)}</p>
                   </div>
                   <span className="nums text-sm text-ink-200 shrink-0">{fmtDuration(s.duration_seconds)}</span>
+                  <div className="flex items-center gap-0.5 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => setEditing(s)}
+                      aria-label="تعديل الجلسة"
+                      title="تعديل"
+                      className="grid place-items-center h-8 w-8 rounded-lg text-ink-400 hover:bg-white/[0.08] hover:text-ink-100 transition-colors focus-ring active:scale-90"
+                    >
+                      <PencilSimple size={16} />
+                    </button>
+                    <button
+                      onClick={() => setDeleting(s)}
+                      aria-label="حذف الجلسة"
+                      title="حذف"
+                      className="grid place-items-center h-8 w-8 rounded-lg text-priority-high hover:bg-priority-high/15 transition-colors focus-ring active:scale-90"
+                    >
+                      <TrashSimple size={16} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
       </div>
+
+      <SessionEditModal
+        session={editing}
+        tasks={tasks ?? []}
+        open={editing !== null}
+        onOpenChange={(o) => !o && setEditing(null)}
+      />
+
+      <Modal
+        open={deleting !== null}
+        onOpenChange={(o) => !o && setDeleting(null)}
+        title="حذف الجلسة؟"
+        description="سيُحذف هذا الوقت من إحصائياتك ولا يمكن التراجع."
+      >
+        <div className="flex gap-2 justify-end">
+          <Button variant="ghost" onClick={() => setDeleting(null)}>
+            إلغاء
+          </Button>
+          <Button
+            variant="danger"
+            disabled={del.isPending}
+            onClick={() => {
+              if (!deleting) return
+              del.mutate(deleting.id, { onSuccess: () => setDeleting(null) })
+            }}
+          >
+            {del.isPending ? 'جارٍ الحذف…' : 'حذف'}
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }
