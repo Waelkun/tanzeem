@@ -9,10 +9,17 @@ const SYSTEM_RULES = `أنت مساعد إنتاجية شخصي ودود داخ�
 - لديك أدوات قراءة تحسب لك بدقّة: «query_time» لحساب ساعات العمل ومتوسطاتها وتجميعها (حسب اليوم/الفئة/الهدف/المهمة) خلال أي فترة، و«query_tasks» للبحث في المهام حسب الحالة أو الفئة أو الهدف أو التواريخ. إذا سألك المستخدم عن رقم أو إحصائية غير جاهزة في السياق (مثل متوسط ساعات فترة محددة، أو مهام فئة معيّنة، أو ما أُنجز في شهر ما)، فاستدعِ الأداة المناسبة واعتمد على نتيجتها — لا تحسب الأرقام ذهنياً، ولا تقل «لا أعرف» قبل محاولة الاستعلام.
 - إذا لم تتوفر المعلومة حتى بعد الاستعلام، قل «لا أعرف» بدل التخمين.
 
+قواعد استمرارية المحادثة (مهم جداً):
+- عامل المحادثة كسياق متصل، لا كأسئلة منفصلة. اقرأ الرسائل السابقة في هذه المحادثة دائماً قبل الرد.
+- كثيراً ما تشير أسئلة المستخدم اللاحقة إلى عناصر ذكرتَها أنت في ردّك السابق باستخدام الترتيب أو الضمائر (مثل «المهمة الثالثة»، «المهمة رقم ٣»، «الثانية»، «تلك المهمة»، «وما فئتها؟»، «ومتى موعدها؟»، «هي»). في هذه الحالة حدّد العنصر المقصود من قائمتك السابقة بنفس ترتيبها، ثم اربطه بالمهمة المطابقة في «بيانات المستخدم الحقيقية» بالعنوان، وأجب مباشرةً.
+- لا تقل «لا أعرف» لمعلومة موجودة فعلاً في بيانات المستخدم أو ذكرتَها للتو (مثل فئة أو أولوية أو موعد مهمة سردتها قبل قليل). «لا أعرف» تُقال فقط حين تكون المعلومة غير متوفرة في البيانات ولا يمكن حسابها بالأدوات.
+- إن كان المرجع غامضاً فعلاً (لم تسرد قائمة من قبل، أو الرقم خارج نطاق القائمة)، اطلب توضيحاً بلطف بدل قول «لا أعرف».
+
 قواعد العرض (مهم جداً):
 - المعرّفات [id: ...] والتواريخ الخام بصيغة ISO بيانات داخلية: لا تذكرها أبداً في ردودك النصية للمستخدم.
 - عند عرض مهمة اذكر: العنوان، والأولوية بكلمة عربية (عالية/متوسطة/منخفضة)، والموعد كما ورد منسّقاً بالعربية (مثل: الخميس 21 أغسطس الساعة 5:50 مساءً) — وإن كان الموعد اليوم فقل «اليوم» وإن كان غداً فقل «غداً» — والفئة إن وُجدت.
-- نسّق ردودك بشكل مرتب وطبيعي: قوائم نقطية قصيرة للمهام، وجمل مباشرة — تحدّث كمساعد شخصي وليس كقاعدة بيانات.
+- عند سرد أكثر من مهمة، رقّمها بالترتيب (1، 2، 3…) حتى يسهل على المستخدم الإشارة إليها لاحقاً، والتزم بهذا الترتيب نفسه عند الإشارة إليها في الردود التالية.
+- نسّق ردودك بشكل مرتب وطبيعي: قوائم مرقّمة قصيرة للمهام، وجمل مباشرة — تحدّث كمساعد شخصي وليس كقاعدة بيانات.
 
 قواعد الإجراءات:
 - لا تضف أو تعدّل أو تحذف أو تكمل أو تجدول أي مهمة أو هدف أو إعداد إلا عند طلب المستخدم الصريح. يتولّى التطبيق عرض بطاقة تأكيد قبل تنفيذ أي إجراء.
@@ -263,12 +270,17 @@ Deno.serve(async (req) => {
 
     const { contextText, raw } = await buildUserData(sb, typeof tz === 'string' ? tz : undefined)
 
-    // Action tools appear only when the user is actually asking for an action —
-    // scanned across the current message AND the last few turns (a follow-up that
-    // only supplies a missing detail carries no keyword on its own). Read tools are
-    // always available, since answering a question is not an action.
+    // Action tools appear only when the user is actually asking for an action.
+    // IMPORTANT: scan only the USER's own words (current message + recent user
+    // turns), never the assistant's replies. The assistant naturally describes
+    // tasks using words like «مجدولة» or «رتّب» that would match the action regex
+    // as substrings — letting its prose flip the mode to 'action' hijacks the
+    // user's next *question* into a forced write-tool proposal instead of an
+    // answer. A follow-up that only supplies a missing detail still carries no
+    // keyword on its own; the add-task clarifier below handles that case.
     const recentHistory = Array.isArray(history) ? history.slice(-4) : []
-    const actionWindow = [String(message ?? ''), ...recentHistory.map((h) => String(h?.content ?? ''))].join(' ')
+    const recentUserTurns = recentHistory.filter((h) => h?.role === 'user')
+    const actionWindow = [String(message ?? ''), ...recentUserTurns.map((h) => String(h?.content ?? ''))].join(' ')
     const wantsAction = ACTION_RE.test(normalizeAr(actionWindow))
 
     // If the previous assistant turn was our "which task do you want to add?"
