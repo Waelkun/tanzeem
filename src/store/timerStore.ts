@@ -12,7 +12,7 @@ export interface PomodoroConfig {
   cycles: number
 }
 
-interface TimerState {
+export interface TimerState {
   status: TimerStatus
   mode: SessionMode
   taskId: string | null

@@ -14,6 +14,7 @@ import {
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/cn'
 import { useRealtimeSync } from '@/lib/realtime'
+import { useTimerSync } from '@/features/timer/timerSync'
 import { TimerEngine } from '@/features/timer/TimerEngine'
 import { RunningBar } from '@/features/timer/RunningBar'
 import { AISidePanel } from '@/features/ai/AISidePanel'
@@ -43,6 +44,7 @@ const MOBILE_NAV = [...NAV, { to: '/settings', label: 'الإعدادات', icon
 
 export default function App() {
   useRealtimeSync()
+  useTimerSync()
   const [aiOpen, setAiOpen] = useState(false)
 
   return (

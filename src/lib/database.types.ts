@@ -33,6 +33,48 @@ export type Database = {
         }
         Relationships: []
       }
+      active_timer: {
+        Row: {
+          base_elapsed: number
+          completed_focus: number
+          id: number
+          mode: string
+          phase: string
+          phase_started_at: string | null
+          segment_start: number | null
+          status: string
+          task_id: string | null
+          task_title: string | null
+          updated_at: string
+        }
+        Insert: {
+          base_elapsed?: number
+          completed_focus?: number
+          id?: number
+          mode?: string
+          phase?: string
+          phase_started_at?: string | null
+          segment_start?: number | null
+          status?: string
+          task_id?: string | null
+          task_title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          base_elapsed?: number
+          completed_focus?: number
+          id?: number
+          mode?: string
+          phase?: string
+          phase_started_at?: string | null
+          segment_start?: number | null
+          status?: string
+          task_id?: string | null
+          task_title?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       calendar_events: {
         Row: {
           end_at: string

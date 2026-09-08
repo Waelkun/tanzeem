@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useLogSession, useSettings } from '@/lib/queries'
 import { localNotify, playChime, vibrate } from '@/lib/alerts'
 import { elapsedSeconds, phaseTargetSeconds, useTimerStore } from '@/store/timerStore'
+import { advanceTimer, applyAdvanced, type TimerSyncState } from './timerSync'
 
 /**
  * Headless engine: syncs pomodoro config from settings and drives automatic
@@ -23,39 +24,73 @@ export function TimerEngine() {
     })
   }, [settings])
 
+  // Prevents overlapping transition attempts while the async claim is in flight.
+  const claiming = useRef(false)
+
   useEffect(() => {
     const id = setInterval(() => {
+      if (claiming.current) return
       const s = useTimerStore.getState()
       if (s.status !== 'running' || s.mode !== 'pomodoro') return
 
       const target = phaseTargetSeconds(s.phase, s.config)
       if (elapsedSeconds(s) < target) return
 
+      const from = s.phaseStartedAtISO
+      const base = {
+        status: 'running' as const,
+        mode: 'pomodoro' as const,
+        taskId: s.taskId,
+        taskTitle: s.taskTitle,
+        segmentStart: Date.now(),
+        baseElapsed: 0,
+        phaseStartedAtISO: new Date().toISOString(),
+      }
+
       if (s.phase === 'focus') {
-        // Log the completed focus block.
-        log.mutate({
-          task_id: s.taskId,
-          started_at: s.phaseStartedAtISO ?? new Date(Date.now() - target * 1000).toISOString(),
-          ended_at: new Date().toISOString(),
-          duration_seconds: target,
-          mode: 'pomodoro',
-        })
         const done = s.completedFocus + 1
-        s.bumpCompletedFocus()
-        const next = done >= s.config.cycles ? 'longbreak' : 'break'
-        s.setPhase(next)
-        s.restartSegment()
-        playChime('focus-end')
-        localNotify('انتهت جلسة التركيز', next === 'longbreak' ? 'حان وقت الاستراحة الطويلة' : 'حان وقت الاستراحة')
-        vibrate([40, 40, 40])
+        const next: TimerSyncState = {
+          ...base,
+          phase: done >= s.config.cycles ? 'longbreak' : 'break',
+          completedFocus: done,
+        }
+        claiming.current = true
+        // Claim the transition: only the winning device logs + advances; the
+        // others receive the new phase via realtime, so no duplicate session.
+        void advanceTimer(from, next).then((won) => {
+          claiming.current = false
+          if (!won) return
+          log.mutate({
+            task_id: s.taskId,
+            started_at: from ?? new Date(Date.now() - target * 1000).toISOString(),
+            ended_at: new Date().toISOString(),
+            duration_seconds: target,
+            mode: 'pomodoro',
+          })
+          applyAdvanced(next)
+          playChime('focus-end')
+          localNotify(
+            'انتهت جلسة التركيز',
+            next.phase === 'longbreak' ? 'حان وقت الاستراحة الطويلة' : 'حان وقت الاستراحة',
+          )
+          vibrate([40, 40, 40])
+        })
       } else {
         const wasLong = s.phase === 'longbreak'
-        s.setPhase('focus')
-        s.restartSegment()
-        if (wasLong) useTimerStore.setState({ completedFocus: 0 })
-        playChime('break-end')
-        localNotify('انتهت الاستراحة', 'ابدأ جلسة تركيز جديدة')
-        vibrate(40)
+        const next: TimerSyncState = {
+          ...base,
+          phase: 'focus',
+          completedFocus: wasLong ? 0 : s.completedFocus,
+        }
+        claiming.current = true
+        void advanceTimer(from, next).then((won) => {
+          claiming.current = false
+          if (!won) return
+          applyAdvanced(next)
+          playChime('break-end')
+          localNotify('انتهت الاستراحة', 'ابدأ جلسة تركيز جديدة')
+          vibrate(40)
+        })
       }
     }, 1000)
     return () => clearInterval(id)
