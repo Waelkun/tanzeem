@@ -32,6 +32,10 @@ export default function Schedule() {
   const dragRef = useRef<{ id: string; title: string; startX: number; startY: number; active: boolean } | null>(null)
   // True right after a real drag, so the trailing click doesn't also fire.
   const didDragRef = useRef(false)
+  // Long-press timer (touch), edge auto-scroll loop, and last pointer Y.
+  const longPressRef = useRef<number | null>(null)
+  const autoScrollRef = useRef<number | null>(null)
+  const pointerYRef = useRef(0)
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(day, { weekStartsOn: 1 }) // Monday — consistent with the Summary week
@@ -116,54 +120,101 @@ export default function Schedule() {
     return { hour: null as number | null, tray: false }
   }
 
-  // Start a pointer drag for a task chip / tray item. A small movement threshold
-  // distinguishes a drag from a tap (which keeps its original click behavior).
+  // While dragging near the top/bottom of the screen, scroll the page so every
+  // hour on the tall timeline is reachable with one continuous drag (mobile).
+  const startAutoScroll = () => {
+    if (autoScrollRef.current != null) return
+    const step = () => {
+      const y = pointerYRef.current
+      const h = window.innerHeight
+      const margin = 96
+      let dy = 0
+      if (y < margin) dy = -Math.ceil((margin - y) / 5)
+      else if (y > h - margin) dy = Math.ceil((y - (h - margin)) / 5)
+      if (dy !== 0) window.scrollBy(0, dy)
+      autoScrollRef.current = requestAnimationFrame(step)
+    }
+    autoScrollRef.current = requestAnimationFrame(step)
+  }
+  const stopAutoScroll = () => {
+    if (autoScrollRef.current != null) cancelAnimationFrame(autoScrollRef.current)
+    autoScrollRef.current = null
+  }
+
+  // Start a drag for a task chip / tray item. Touch uses a short press-and-hold
+  // to "lift" the task (native feel, avoids hijacking a scroll); mouse uses a
+  // small movement threshold. Tap without a drag keeps the original click.
   const startDrag = (taskId: string, title: string) => (e: React.PointerEvent) => {
     if (e.button != null && e.button !== 0) return
     e.stopPropagation()
+    const isTouch = e.pointerType === 'touch'
     dragRef.current = { id: taskId, title, startX: e.clientX, startY: e.clientY, active: false }
     didDragRef.current = false
+    pointerYRef.current = e.clientY
+
+    const activate = () => {
+      const st = dragRef.current
+      if (!st || st.active) return
+      st.active = true
+      didDragRef.current = true
+      setDraggingId(st.id)
+      setGhost({ x: st.startX, y: pointerYRef.current, title: st.title })
+      document.body.style.userSelect = 'none'
+      try { if (isTouch) navigator.vibrate?.(12) } catch { /* no haptics */ }
+      startAutoScroll()
+    }
+
+    // Touch: lift after a brief hold. Mouse: lift on first real movement.
+    if (isTouch) longPressRef.current = window.setTimeout(activate, 170)
 
     const move = (ev: PointerEvent) => {
       const st = dragRef.current
       if (!st) return
+      pointerYRef.current = ev.clientY
       if (!st.active) {
-        if (Math.hypot(ev.clientX - st.startX, ev.clientY - st.startY) < 8) return
-        st.active = true
-        didDragRef.current = true
-        setDraggingId(st.id)
-        document.body.style.userSelect = 'none'
+        const dist = Math.hypot(ev.clientX - st.startX, ev.clientY - st.startY)
+        if (isTouch) {
+          // Moved before the hold completed → user is scrolling, not dragging.
+          if (dist > 12) cleanup()
+          return
+        }
+        if (dist < 6) return
+        activate()
       }
+      ev.preventDefault?.()
       setGhost({ x: ev.clientX, y: ev.clientY, title: st.title })
       const z = zoneAt(ev.clientX, ev.clientY)
       setDragOverHour(z.hour)
       setDragOverTray(z.tray)
     }
+    // Stop the page from scrolling under the finger once a drag is active.
+    const lockScroll = (ev: TouchEvent) => {
+      if (dragRef.current?.active) ev.preventDefault()
+    }
     const finish = (ev: PointerEvent) => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', finish)
-      window.removeEventListener('pointercancel', cancel)
-      document.body.style.userSelect = ''
       const st = dragRef.current
-      dragRef.current = null
       if (st?.active) {
         const z = zoneAt(ev.clientX, ev.clientY)
-        if (z.hour != null) scheduleTaskAt(st.id, z.hour)
+        if (z.hour != null) { scheduleTaskAt(st.id, z.hour); try { navigator.vibrate?.(8) } catch { /* */ } }
         else if (z.tray) unscheduleTask(st.id)
       }
-      endDrag()
+      cleanup()
     }
-    const cancel = () => {
+    function cleanup() {
+      if (longPressRef.current != null) { window.clearTimeout(longPressRef.current); longPressRef.current = null }
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', finish)
-      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('pointercancel', cleanup)
+      document.removeEventListener('touchmove', lockScroll)
       document.body.style.userSelect = ''
+      stopAutoScroll()
       dragRef.current = null
       endDrag()
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', finish)
-    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('pointercancel', cleanup)
+    document.addEventListener('touchmove', lockScroll, { passive: false })
   }
 
   return (
@@ -280,8 +331,8 @@ export default function Schedule() {
                           setFormOpen(true)
                         }}
                         className={cn(
-                          'rounded-xl px-3 py-2 text-sm cursor-grab active:cursor-grabbing touch-none select-none',
-                          draggingId === t.id && 'opacity-50',
+                          'rounded-xl px-3 py-2 text-sm cursor-grab active:cursor-grabbing touch-pan-y select-none transition-transform',
+                          draggingId === t.id && 'opacity-40 scale-[0.98]',
                         )}
                         style={{
                           background: `${PRIORITY_COLORS[t.priority]}1f`,
@@ -327,8 +378,8 @@ export default function Schedule() {
                         setSelected(selected?.id === t.id ? null : t)
                       }}
                       className={cn(
-                        'w-full text-start glass-soft rounded-xl px-3 py-2.5 text-sm transition-colors cursor-grab active:cursor-grabbing touch-none select-none',
-                        draggingId === t.id && 'opacity-50',
+                        'w-full text-start glass-soft rounded-xl px-3 py-2.5 text-sm transition-all cursor-grab active:cursor-grabbing touch-pan-y select-none',
+                        draggingId === t.id && 'opacity-40 scale-[0.98]',
                         selected?.id === t.id ? 'ring-1 ring-accent/60 bg-accent-faint' : 'hover:bg-white/[0.06]',
                       )}
                     >

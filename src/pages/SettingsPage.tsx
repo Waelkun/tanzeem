@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { BellRinging, Info, SignOut, Timer, UserCircle } from '@phosphor-icons/react'
+import { useNavigate } from 'react-router-dom'
+import { BellRinging, CaretLeft, Info, ShieldStar, SignOut, Timer, UserCircle } from '@phosphor-icons/react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
@@ -62,6 +63,7 @@ export default function SettingsPage() {
 
 function AccountSection() {
   const { user, profile, isAdmin, signOut } = useAuth()
+  const navigate = useNavigate()
   const meta = (user?.user_metadata ?? {}) as Record<string, string>
   const avatar = meta.avatar_url || meta.picture || ''
   const name = meta.full_name || meta.name || profile?.display_name || user?.email || 'حسابي'
@@ -91,6 +93,19 @@ function AccountSection() {
           </p>
         </div>
       </div>
+
+      {isAdmin && (
+        <button
+          onClick={() => navigate('/admin')}
+          className="mt-1 w-full flex items-center justify-between gap-3 rounded-2xl px-3 py-3 glass-soft hover:bg-white/[0.06] transition-colors focus-ring"
+        >
+          <span className="flex items-center gap-2.5 text-ink-100">
+            <ShieldStar size={18} weight="fill" className="text-accent-strong" />
+            <span className="text-sm font-medium">لوحة الإدارة</span>
+          </span>
+          <CaretLeft size={16} className="text-ink-500" />
+        </button>
+      )}
 
       <div className="pt-1">
         <Button variant="ghost" size="sm" onClick={signOut}>
