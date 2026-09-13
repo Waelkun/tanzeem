@@ -40,7 +40,6 @@ export type Database = {
         Row: {
           base_elapsed: number
           completed_focus: number
-          id: number
           mode: string
           phase: string
           phase_started_at: string | null
@@ -54,7 +53,6 @@ export type Database = {
         Insert: {
           base_elapsed?: number
           completed_focus?: number
-          id?: number
           mode?: string
           phase?: string
           phase_started_at?: string | null
@@ -68,7 +66,6 @@ export type Database = {
         Update: {
           base_elapsed?: number
           completed_focus?: number
-          id?: number
           mode?: string
           phase?: string
           phase_started_at?: string | null
@@ -316,7 +313,6 @@ export type Database = {
         Row: {
           cal_pull_from_google: boolean
           cal_push_to_google: boolean
-          id: number
           notif_daily_plan: boolean
           notif_pomodoro: boolean
           notif_task_reminders: boolean
@@ -332,7 +328,6 @@ export type Database = {
         Insert: {
           cal_pull_from_google?: boolean
           cal_push_to_google?: boolean
-          id?: number
           notif_daily_plan?: boolean
           notif_pomodoro?: boolean
           notif_task_reminders?: boolean
@@ -348,7 +343,6 @@ export type Database = {
         Update: {
           cal_pull_from_google?: boolean
           cal_push_to_google?: boolean
-          id?: number
           notif_daily_plan?: boolean
           notif_pomodoro?: boolean
           notif_task_reminders?: boolean
