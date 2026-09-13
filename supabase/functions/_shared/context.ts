@@ -40,14 +40,16 @@ export async function buildUserData(sb: SupabaseClient, tzArg?: string): Promise
   const now = new Date()
   const nowISO = now.toISOString()
 
-  const [tasksRes, sessionsRes, goalsRes, settingsRes, achievementsRes, plansRes, eventsRes] = await Promise.all([
+  // NOTE: `sb` is expected to be a client bound to the caller's JWT, so RLS
+  // scopes every one of these reads to that user's own rows. `settings` is one
+  // row per user, so a plain maybeSingle() (no id filter) returns theirs.
+  const [tasksRes, sessionsRes, goalsRes, settingsRes, achievementsRes, plansRes] = await Promise.all([
     sb.from('tasks').select('*').order('created_at', { ascending: false }),
     sb.from('sessions').select('*').order('started_at', { ascending: false }),
     sb.from('goal_progress').select('*'),
-    sb.from('settings').select('*').eq('id', 1).single(),
+    sb.from('settings').select('*').maybeSingle(),
     sb.from('achievements').select('*').order('created_at', { ascending: false }).limit(30),
     sb.from('daily_plans').select('*').order('plan_date', { ascending: false }).limit(3),
-    sb.from('calendar_events').select('*').gte('start_at', nowISO).order('start_at', { ascending: true }).limit(10),
   ])
 
   const tasks = tasksRes.data ?? []
@@ -56,7 +58,6 @@ export async function buildUserData(sb: SupabaseClient, tzArg?: string): Promise
   const settings = settingsRes.data ?? null
   const achievements = achievementsRes.data ?? []
   const plans = plansRes.data ?? []
-  const events = eventsRes.data ?? []
 
   // Effective timezone: caller (browser) → stored setting → sensible default.
   const tz = tzArg || (settings?.timezone as string) || 'Europe/Berlin'
@@ -224,11 +225,6 @@ export async function buildUserData(sb: SupabaseClient, tzArg?: string): Promise
   if (done.length) {
     lines.push(`### منجزة حديثاً (أحدث ${Math.min(done.length, 40)} من ${done.length}):`)
     for (const t of done.slice(0, 40)) lines.push(taskLine(t) + (t.completed_at ? ` — أُنجزت: ${fmtAr(t.completed_at)}` : ''))
-  }
-
-  if (events.length) {
-    lines.push('\n## أحداث التقويم القادمة:')
-    for (const e of events) lines.push(`- «${e.title ?? 'حدث'}» من ${fmtAr(e.start_at)} إلى ${fmtAr(e.end_at)}`)
   }
 
   if (plans.length) {

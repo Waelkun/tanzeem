@@ -15,9 +15,16 @@
 import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useTimerStore, type TimerState } from '@/store/timerStore'
+import { useAuth } from '@/features/auth/AuthProvider'
 import type { Database } from '@/lib/database.types'
 
 type Row = Database['public']['Tables']['active_timer']['Row']
+
+// The signed-in user's id. Each user owns exactly one `active_timer` row, so
+// this scopes every read/write below. Set by `useTimerSync` on mount; the
+// module-level functions (`pushTimer`/`advanceTimer`) read it so their external
+// call sites don't need to thread the id through.
+let currentUserId: string | null = null
 
 /** The store fields that make up the shared timer (config stays device-local). */
 export type TimerSyncState = Pick<
@@ -79,10 +86,14 @@ function stateToRow(s: TimerSyncState) {
   }
 }
 
-/** Write the current shared timer state to the single row. Best-effort. */
+/** Write the current shared timer state to this user's row. Best-effort. */
 async function pushTimer(s: TimerSyncState) {
+  if (!currentUserId) return
   try {
-    await supabase.from('active_timer').update(stateToRow(s)).eq('id', 1)
+    // Upsert so the row is created on first use and updated thereafter.
+    await supabase
+      .from('active_timer')
+      .upsert({ user_id: currentUserId, ...stateToRow(s) }, { onConflict: 'user_id' })
   } catch {
     /* offline / transient — a later transition or realtime reconnect reconciles */
   }
@@ -105,7 +116,7 @@ function applyLocal(next: TimerSyncState) {
  * Returns true if THIS device should log the finished block and advance locally.
  */
 export async function advanceTimer(fromISO: string | null, next: TimerSyncState): Promise<boolean> {
-  if (!fromISO) {
+  if (!fromISO || !currentUserId) {
     // No token to compare against (shouldn't happen mid-pomodoro) — act locally.
     void pushTimer(next)
     return true
@@ -114,7 +125,7 @@ export async function advanceTimer(fromISO: string | null, next: TimerSyncState)
     const { data, error } = await supabase
       .from('active_timer')
       .update(stateToRow(next))
-      .eq('id', 1)
+      .eq('user_id', currentUserId)
       .eq('phase_started_at', fromISO)
       .select('id')
     if (error) return true
@@ -134,16 +145,21 @@ export function applyAdvanced(next: TimerSyncState) {
  * and the row mirrored in both directions.
  */
 export function useTimerSync() {
+  const { user } = useAuth()
+  const uid = user?.id ?? null
+
   useEffect(() => {
+    currentUserId = uid
+    if (!uid) return
     let cancelled = false
 
-    // Initial hydrate: the server row is the source of truth. If it says idle,
-    // a stale local timer is cleared; if it has a running timer, we adopt it.
+    // Initial hydrate: this user's server row is the source of truth. If it says
+    // idle, a stale local timer is cleared; if it has a running timer, adopt it.
     supabase
       .from('active_timer')
       .select('*')
-      .eq('id', 1)
-      .single()
+      .eq('user_id', uid)
+      .maybeSingle()
       .then(({ data }) => {
         if (!cancelled && data) applyLocal(rowToState(data as Row))
       })
@@ -155,15 +171,17 @@ export function useTimerSync() {
       void pushTimer(pick(state))
     })
 
-    // server → local: mirror remote changes (other devices) into the store.
+    // server → local: mirror this user's remote changes (other devices) into the
+    // store. RLS already limits delivery to the user's own row; the explicit
+    // filter is belt-and-suspenders.
     const channel = supabase
-      .channel('active-timer')
+      .channel(`active-timer-${uid}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'active_timer' },
+        { event: '*', schema: 'public', table: 'active_timer', filter: `user_id=eq.${uid}` },
         (payload) => {
           const r = payload.new as Row
-          if (r && r.id === 1) applyLocal(rowToState(r))
+          if (r && r.user_id === uid) applyLocal(rowToState(r))
         },
       )
       .subscribe()
@@ -173,5 +191,5 @@ export function useTimerSync() {
       unsubscribe()
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [uid])
 }

@@ -10,7 +10,14 @@ if (!url || !anonKey) {
 }
 
 export const supabase = createClient<Database>(url, anonKey, {
-  auth: { persistSession: false },
+  auth: {
+    // Multi-user: keep the signed-in session in localStorage, refresh it
+    // automatically, and pick up the session from the URL after an email
+    // confirmation link or a Google OAuth redirect.
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
   realtime: { params: { eventsPerSecond: 5 } },
 })
 
@@ -33,11 +40,18 @@ export async function invokeFunction<T = unknown>(
   // Always carry the caller's timezone so server-side AI reasons about clock
   // times in the user's local zone (unless the caller set one explicitly).
   const payload = { tz: browserTimezone(), ...body }
+
+  // Send the signed-in user's access token so the function can identify who is
+  // calling (and scope data to them). Fall back to the anon key when there is
+  // no session yet.
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token ?? anonKey
+
   const res = await fetch(`${functionsUrl}/${name}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${anonKey}`,
+      Authorization: `Bearer ${token}`,
       apikey: anonKey,
     },
     body: JSON.stringify(payload),

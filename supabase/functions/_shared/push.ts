@@ -9,14 +9,22 @@ export interface PushPayload {
   tag?: string
 }
 
+/**
+ * Send a push to a user's devices. Pass `userId` to target only that user's
+ * subscriptions (multi-user); omit it only for a true broadcast. `sb` should be
+ * the service-role client so expired subscriptions can be pruned.
+ */
 export async function sendToAll(
   sb: SupabaseClient,
   cfg: Record<string, string>,
   payload: PushPayload,
+  userId?: string,
 ): Promise<{ sent: number; failed: number }> {
   webpush.setVapidDetails(cfg.VAPID_SUBJECT, cfg.VAPID_PUBLIC_KEY, cfg.VAPID_PRIVATE_KEY)
 
-  const { data: subs } = await sb.from('push_subscriptions').select('*')
+  let query = sb.from('push_subscriptions').select('*')
+  if (userId) query = query.eq('user_id', userId)
+  const { data: subs } = await query
   if (!subs || subs.length === 0) return { sent: 0, failed: 0 }
 
   let sent = 0

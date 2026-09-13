@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { addDays, isSameDay, isToday, parseISO, setHours, startOfDay, startOfWeek } from 'date-fns'
 import { AnimatePresence, motion } from 'framer-motion'
 import { CaretLeft, CaretRight, Clock } from '@phosphor-icons/react'
@@ -12,7 +12,7 @@ import { fmtDate, fmtWeekday, WEEKDAYS_SHORT_AR } from '@/lib/dates'
 import { PRIORITY_COLORS, type Task } from '@/lib/types'
 import { cn } from '@/lib/cn'
 
-const HOURS = Array.from({ length: 18 }, (_, i) => i + 6) // 6:00 → 23:00
+const HOURS = Array.from({ length: 24 }, (_, i) => i) // 0:00 → 23:00 (full day)
 
 export default function Schedule() {
   const { data: tasks, isLoading } = useTasks()
@@ -22,10 +22,16 @@ export default function Schedule() {
   const [selected, setSelected] = useState<Task | null>(null)
   const [editing, setEditing] = useState<Task | null>(null)
   const [formOpen, setFormOpen] = useState(false)
-  // Drag-and-drop state (pointer devices; tap-to-place remains the touch fallback).
+  // Drag-and-drop state. Uses Pointer Events so it works on BOTH mouse and touch
+  // (HTML5 drag events don't fire on phones). Tap-to-place remains as a fallback.
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverHour, setDragOverHour] = useState<number | null>(null)
   const [dragOverTray, setDragOverTray] = useState(false)
+  // Floating label that follows the finger/cursor while dragging.
+  const [ghost, setGhost] = useState<{ x: number; y: number; title: string } | null>(null)
+  const dragRef = useRef<{ id: string; title: string; startX: number; startY: number; active: boolean } | null>(null)
+  // True right after a real drag, so the trailing click doesn't also fire.
+  const didDragRef = useRef(false)
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(day, { weekStartsOn: 1 }) // Monday — consistent with the Summary week
@@ -93,27 +99,71 @@ export default function Schedule() {
     update.mutate({ id: taskId, patch: { scheduled_start: null, scheduled_end: null, due_date: null } })
   }
 
-  const onTaskDragStart = (taskId: string) => (e: React.DragEvent) => {
-    e.dataTransfer.setData('text/plain', taskId)
-    e.dataTransfer.effectAllowed = 'move'
-    setDraggingId(taskId)
-  }
   const endDrag = () => {
     setDraggingId(null)
     setDragOverHour(null)
     setDragOverTray(false)
+    setGhost(null)
   }
-  const dropOnHour = (hour: number) => (e: React.DragEvent) => {
-    e.preventDefault()
-    const id = e.dataTransfer.getData('text/plain') || draggingId
-    if (id) scheduleTaskAt(id, hour)
-    endDrag()
+
+  // Resolve the drop zone under a screen point (works for mouse and touch). The
+  // ghost has pointer-events:none, so it never masks the element beneath.
+  const zoneAt = (x: number, y: number) => {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null
+    const hourEl = el?.closest('[data-hour]') as HTMLElement | null
+    if (hourEl) return { hour: Number(hourEl.dataset.hour), tray: false }
+    if (el?.closest('[data-tray]')) return { hour: null as number | null, tray: true }
+    return { hour: null as number | null, tray: false }
   }
-  const dropOnTray = (e: React.DragEvent) => {
-    e.preventDefault()
-    const id = e.dataTransfer.getData('text/plain') || draggingId
-    if (id) unscheduleTask(id)
-    endDrag()
+
+  // Start a pointer drag for a task chip / tray item. A small movement threshold
+  // distinguishes a drag from a tap (which keeps its original click behavior).
+  const startDrag = (taskId: string, title: string) => (e: React.PointerEvent) => {
+    if (e.button != null && e.button !== 0) return
+    e.stopPropagation()
+    dragRef.current = { id: taskId, title, startX: e.clientX, startY: e.clientY, active: false }
+    didDragRef.current = false
+
+    const move = (ev: PointerEvent) => {
+      const st = dragRef.current
+      if (!st) return
+      if (!st.active) {
+        if (Math.hypot(ev.clientX - st.startX, ev.clientY - st.startY) < 8) return
+        st.active = true
+        didDragRef.current = true
+        setDraggingId(st.id)
+        document.body.style.userSelect = 'none'
+      }
+      setGhost({ x: ev.clientX, y: ev.clientY, title: st.title })
+      const z = zoneAt(ev.clientX, ev.clientY)
+      setDragOverHour(z.hour)
+      setDragOverTray(z.tray)
+    }
+    const finish = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', cancel)
+      document.body.style.userSelect = ''
+      const st = dragRef.current
+      dragRef.current = null
+      if (st?.active) {
+        const z = zoneAt(ev.clientX, ev.clientY)
+        if (z.hour != null) scheduleTaskAt(st.id, z.hour)
+        else if (z.tray) unscheduleTask(st.id)
+      }
+      endDrag()
+    }
+    const cancel = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', cancel)
+      document.body.style.userSelect = ''
+      dragRef.current = null
+      endDrag()
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', cancel)
   }
 
   return (
@@ -194,14 +244,8 @@ export default function Schedule() {
               return (
                 <button
                   key={h}
+                  data-hour={h}
                   onClick={() => selected && assignToHour(h)}
-                  onDragOver={(e) => {
-                    e.preventDefault()
-                    e.dataTransfer.dropEffect = 'move'
-                    if (dragOverHour !== h) setDragOverHour(h)
-                  }}
-                  onDragLeave={() => setDragOverHour((cur) => (cur === h ? null : cur))}
-                  onDrop={dropOnHour(h)}
                   className={cn(
                     'w-full flex gap-3 items-stretch py-1.5 text-start rounded-xl transition-colors',
                     (selected || draggingId) && 'cursor-pointer',
@@ -225,16 +269,18 @@ export default function Schedule() {
                     {items.map((t) => (
                       <div
                         key={t.id}
-                        draggable
-                        onDragStart={onTaskDragStart(t.id)}
-                        onDragEnd={endDrag}
+                        onPointerDown={startDrag(t.id, t.title)}
                         onClick={(e) => {
                           e.stopPropagation()
+                          if (didDragRef.current) {
+                            didDragRef.current = false
+                            return
+                          }
                           setEditing(t)
                           setFormOpen(true)
                         }}
                         className={cn(
-                          'rounded-xl px-3 py-2 text-sm cursor-grab active:cursor-grabbing',
+                          'rounded-xl px-3 py-2 text-sm cursor-grab active:cursor-grabbing touch-none select-none',
                           draggingId === t.id && 'opacity-50',
                         )}
                         style={{
@@ -253,15 +299,7 @@ export default function Schedule() {
 
           {/* Unscheduled tray — also a drop zone to unschedule a task */}
           <div
-            onDragOver={(e) => {
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'move'
-              if (!dragOverTray) setDragOverTray(true)
-            }}
-            onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverTray(false)
-            }}
-            onDrop={dropOnTray}
+            data-tray
             className={cn(
               'glass rounded-3xl p-4 h-fit transition-colors',
               dragOverTray && draggingId && 'ring-2 ring-accent/60 bg-accent-faint',
@@ -280,12 +318,16 @@ export default function Schedule() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0, scale: 0.96 }}
-                      draggable
-                      onDragStartCapture={onTaskDragStart(t.id)}
-                      onDragEndCapture={endDrag}
-                      onClick={() => setSelected(selected?.id === t.id ? null : t)}
+                      onPointerDown={startDrag(t.id, t.title)}
+                      onClick={() => {
+                        if (didDragRef.current) {
+                          didDragRef.current = false
+                          return
+                        }
+                        setSelected(selected?.id === t.id ? null : t)
+                      }}
                       className={cn(
-                        'w-full text-start glass-soft rounded-xl px-3 py-2.5 text-sm transition-colors cursor-grab active:cursor-grabbing',
+                        'w-full text-start glass-soft rounded-xl px-3 py-2.5 text-sm transition-colors cursor-grab active:cursor-grabbing touch-none select-none',
                         draggingId === t.id && 'opacity-50',
                         selected?.id === t.id ? 'ring-1 ring-accent/60 bg-accent-faint' : 'hover:bg-white/[0.06]',
                       )}
@@ -300,13 +342,24 @@ export default function Schedule() {
               </div>
             )}
             <p className="text-[11px] text-ink-400 mt-3 leading-relaxed">
-              اسحب مهمة إلى ساعة في الجدول لجدولتها، واسحبها إلى هنا لإلغاء جدولتها. على الجوال: اضغط مهمة ثم اضغط الساعة.
+              اسحب مهمة إلى ساعة في الجدول لجدولتها، واسحبها إلى هنا لإلغاء جدولتها — يعمل السحب على الجوال أيضاً.
+              وكبديل: اضغط مهمة ثم اضغط الساعة.
             </p>
           </div>
         </div>
       )}
 
       <TaskForm open={formOpen} onOpenChange={setFormOpen} task={editing} />
+
+      {/* Floating label following the finger/cursor during a drag. */}
+      {ghost && (
+        <div
+          className="fixed z-[60] pointer-events-none -translate-x-1/2 -translate-y-1/2 rounded-xl bg-accent text-ink-950 text-sm font-medium px-3 py-2 shadow-lg"
+          style={{ left: ghost.x, top: ghost.y }}
+        >
+          {ghost.title}
+        </div>
+      )}
     </div>
   )
 }

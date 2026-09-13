@@ -18,18 +18,21 @@ export type Database = {
           id: string
           task_id: string | null
           text: string
+          user_id: string | null
         }
         Insert: {
           created_at?: string
           id?: string
           task_id?: string | null
           text: string
+          user_id?: string | null
         }
         Update: {
           created_at?: string
           id?: string
           task_id?: string | null
           text?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -46,6 +49,7 @@ export type Database = {
           task_id: string | null
           task_title: string | null
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           base_elapsed?: number
@@ -59,6 +63,7 @@ export type Database = {
           task_id?: string | null
           task_title?: string | null
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           base_elapsed?: number
@@ -72,6 +77,7 @@ export type Database = {
           task_id?: string | null
           task_title?: string | null
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -137,6 +143,7 @@ export type Database = {
           provider: string | null
           role: Database['public']['Enums']['chat_role']
           tool_call: Json | null
+          user_id: string | null
         }
         Insert: {
           content: string
@@ -145,6 +152,7 @@ export type Database = {
           provider?: string | null
           role: Database['public']['Enums']['chat_role']
           tool_call?: Json | null
+          user_id?: string | null
         }
         Update: {
           content?: string
@@ -153,6 +161,7 @@ export type Database = {
           provider?: string | null
           role?: Database['public']['Enums']['chat_role']
           tool_call?: Json | null
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -163,6 +172,7 @@ export type Database = {
           items: Json
           plan_date: string
           status: Database['public']['Enums']['plan_status']
+          user_id: string | null
         }
         Insert: {
           created_at?: string
@@ -170,6 +180,7 @@ export type Database = {
           items?: Json
           plan_date: string
           status?: Database['public']['Enums']['plan_status']
+          user_id?: string | null
         }
         Update: {
           created_at?: string
@@ -177,6 +188,7 @@ export type Database = {
           items?: Json
           plan_date?: string
           status?: Database['public']['Enums']['plan_status']
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -189,6 +201,7 @@ export type Database = {
           id: string
           target_hours: number
           title: string
+          user_id: string | null
         }
         Insert: {
           archived?: boolean
@@ -198,6 +211,7 @@ export type Database = {
           id?: string
           target_hours?: number
           title: string
+          user_id?: string | null
         }
         Update: {
           archived?: boolean
@@ -207,6 +221,34 @@ export type Database = {
           id?: string
           target_hours?: number
           title?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          ai_enabled: boolean
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+          role: string
+        }
+        Insert: {
+          ai_enabled?: boolean
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id: string
+          role?: string
+        }
+        Update: {
+          ai_enabled?: boolean
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          role?: string
         }
         Relationships: []
       }
@@ -217,6 +259,7 @@ export type Database = {
           endpoint: string
           id: string
           keys: Json
+          user_id: string | null
         }
         Insert: {
           created_at?: string
@@ -224,6 +267,7 @@ export type Database = {
           endpoint: string
           id?: string
           keys: Json
+          user_id?: string | null
         }
         Update: {
           created_at?: string
@@ -231,6 +275,7 @@ export type Database = {
           endpoint?: string
           id?: string
           keys?: Json
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -243,6 +288,7 @@ export type Database = {
           mode: Database['public']['Enums']['session_mode']
           started_at: string
           task_id: string | null
+          user_id: string | null
         }
         Insert: {
           created_at?: string
@@ -252,6 +298,7 @@ export type Database = {
           mode?: Database['public']['Enums']['session_mode']
           started_at?: string
           task_id?: string | null
+          user_id?: string | null
         }
         Update: {
           created_at?: string
@@ -261,6 +308,7 @@ export type Database = {
           mode?: Database['public']['Enums']['session_mode']
           started_at?: string
           task_id?: string | null
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -279,6 +327,7 @@ export type Database = {
           theme: string
           timezone: string
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           cal_pull_from_google?: boolean
@@ -294,6 +343,7 @@ export type Database = {
           theme?: string
           timezone?: string
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           cal_pull_from_google?: boolean
@@ -309,6 +359,7 @@ export type Database = {
           theme?: string
           timezone?: string
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -330,6 +381,7 @@ export type Database = {
           sort_order: number
           status: Database['public']['Enums']['task_status']
           title: string
+          user_id: string | null
         }
         Insert: {
           category?: string | null
@@ -348,6 +400,7 @@ export type Database = {
           sort_order?: number
           status?: Database['public']['Enums']['task_status']
           title: string
+          user_id?: string | null
         }
         Update: {
           category?: string | null
@@ -366,6 +419,7 @@ export type Database = {
           sort_order?: number
           status?: Database['public']['Enums']['task_status']
           title?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -385,7 +439,35 @@ export type Database = {
         Relationships: []
       }
     }
-    Functions: Record<string, never>
+    Functions: {
+      is_admin: {
+        Args: Record<string, never>
+        Returns: boolean
+      }
+      admin_set_ai_enabled: {
+        Args: { target: string; val: boolean }
+        Returns: undefined
+      }
+      admin_user_stats: {
+        Args: Record<string, never>
+        Returns: {
+          id: string
+          email: string | null
+          display_name: string | null
+          role: string
+          ai_enabled: boolean
+          created_at: string
+          tasks: number
+          sessions: number
+          achievements: number
+          goals: number
+          chat_messages: number
+          daily_plans: number
+          tracked_seconds: number
+          est_bytes: number
+        }[]
+      }
+    }
     Enums: {
       chat_role: 'user' | 'assistant'
       plan_status: 'proposed' | 'accepted' | 'rejected'

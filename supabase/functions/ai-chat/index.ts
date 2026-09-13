@@ -1,4 +1,4 @@
-import { cors, json, admin, getConfig, checkApiKey } from '../_shared/util.ts'
+import { cors, json, admin, getConfig, checkApiKey, getAuthUser, userClient } from '../_shared/util.ts'
 import { buildUserData, queryTasks, queryTime } from '../_shared/context.ts'
 import { chatComplete, getProviders } from '../_shared/llm.ts'
 
@@ -262,13 +262,27 @@ Deno.serve(async (req) => {
 
   try {
     const { message, history, tz } = await req.json()
-    const sb = admin()
-    const cfg = await getConfig(sb)
+    const adminSb = admin()
+    const cfg = await getConfig(adminSb)
     if (!checkApiKey(req, cfg.APP_ANON_KEY)) return json({ error: 'unauthorized' }, 401)
+
+    // Identify the signed-in user and enforce per-user AI access.
+    const authUser = await getAuthUser(req)
+    if (!authUser) return json({ error: 'unauthorized' }, 401)
+    if (!authUser.ai_enabled) {
+      return json({
+        reply: 'لم يتم تفعيل المساعد الذكي لحسابك بعد. سيقوم المشرف بتفعيله قريباً.',
+        tool_call: null,
+        provider: null,
+      })
+    }
+
     const providers = getProviders(cfg)
     if (providers.length === 0) return json({ error: 'no AI providers configured' }, 500)
 
-    const { contextText, raw } = await buildUserData(sb, typeof tz === 'string' ? tz : undefined)
+    // Read the user's data through a JWT-bound client so RLS scopes it to them.
+    const sbUser = userClient(req)
+    const { contextText, raw } = await buildUserData(sbUser, typeof tz === 'string' ? tz : undefined)
 
     // Action tools appear only when the user is actually asking for an action.
     // IMPORTANT: scan only the USER's own words (current message + recent user

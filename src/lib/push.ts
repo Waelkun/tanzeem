@@ -31,9 +31,15 @@ export async function enablePush(): Promise<{ ok: boolean; reason?: string }> {
       applicationServerKey: urlBase64ToUint8Array(vapid),
     }))
 
+  // Tie this device to the signed-in user (so reminders reach the right person).
+  const { data: auth } = await supabase.auth.getUser()
+  const uid = auth.user?.id
+  if (!uid) return { ok: false, reason: 'يجب تسجيل الدخول أولاً' }
+
   const json = sub.toJSON()
   const { error } = await supabase.from('push_subscriptions').upsert(
     {
+      user_id: uid,
       endpoint: json.endpoint!,
       keys: json.keys as unknown as Record<string, string>,
       device_label: navigator.userAgent.slice(0, 80),

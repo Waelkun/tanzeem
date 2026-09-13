@@ -8,6 +8,7 @@ import { qk, useTasks } from '@/lib/queries'
 import type { Json } from '@/lib/database.types'
 import type { ProposedToolCall } from '@/lib/types'
 import { describeToolCall, executeToolCall, normalizeAddTask } from './executeTool'
+import { useAuth } from '@/features/auth/AuthProvider'
 import { cn } from '@/lib/cn'
 
 interface Msg {
@@ -24,6 +25,7 @@ const SUGGESTIONS = ['ما هي مهامي اليوم؟', 'كم ساعة عمل�
 
 export function AISidePanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
+  const { aiEnabled } = useAuth()
   const { data: tasks } = useTasks()
   const taskTitleById = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t.title])), [tasks])
   const [messages, setMessages] = useState<Msg[]>([])
@@ -174,6 +176,10 @@ export function AISidePanel({ onClose }: { onClose: () => void }) {
 
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+          {!aiEnabled ? (
+            <AiDisabledNotice />
+          ) : (
+           <>
           {messages.length === 0 && !busy && (
             <div className="text-center py-8">
               <div className="grid place-items-center h-14 w-14 rounded-3xl bg-accent-faint text-accent-strong mx-auto mb-3 animate-float">
@@ -212,9 +218,12 @@ export function AISidePanel({ onClose }: { onClose: () => void }) {
               يفكّر…
             </div>
           )}
+           </>
+          )}
         </div>
 
         {/* Input */}
+        {aiEnabled && (
         <div className="p-3 border-t border-white/[0.06]">
           <div className="flex items-end gap-2 glass-soft rounded-2xl p-1.5">
             <textarea
@@ -239,8 +248,25 @@ export function AISidePanel({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         </div>
+        )}
       </motion.aside>
     </>
+  )
+}
+
+/** Shown when the signed-in user has not been granted AI access by the admin. */
+function AiDisabledNotice() {
+  return (
+    <div className="text-center py-10 px-4">
+      <div className="grid place-items-center h-14 w-14 rounded-3xl bg-white/[0.05] text-ink-300 mx-auto mb-4">
+        <Sparkle size={26} />
+      </div>
+      <p className="font-medium text-ink-100">المساعد الذكي غير مُفعّل بعد</p>
+      <p className="text-sm text-ink-400 mt-2 leading-relaxed">
+        لم يتم تفعيل المساعد الذكي لحسابك حتى الآن. سيقوم المشرف بتفعيله قريباً، وبعدها ستتمكّن من
+        استخدامه هنا.
+      </p>
+    </div>
   )
 }
 

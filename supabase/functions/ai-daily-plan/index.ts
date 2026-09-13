@@ -1,4 +1,4 @@
-import { cors, json, admin, getConfig, checkApiKey } from '../_shared/util.ts'
+import { cors, json, admin, getConfig, checkApiKey, getAuthUser, userClient } from '../_shared/util.ts'
 import { buildUserData } from '../_shared/context.ts'
 import { chatComplete, getProviders } from '../_shared/llm.ts'
 
@@ -31,13 +31,22 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
 
   try {
-    const sb = admin()
-    const cfg = await getConfig(sb)
+    const adminSb = admin()
+    const cfg = await getConfig(adminSb)
     if (!checkApiKey(req, cfg.APP_ANON_KEY)) return json({ error: 'unauthorized' }, 401)
+
+    const authUser = await getAuthUser(req)
+    if (!authUser) return json({ error: 'unauthorized' }, 401)
+    if (!authUser.ai_enabled) {
+      return json({ plan: [], summary: 'لم يتم تفعيل المساعد الذكي لحسابك بعد.' })
+    }
+
     const providers = getProviders(cfg)
     if (providers.length === 0) return json({ error: 'no AI providers configured' }, 500)
     const body = await req.json().catch(() => ({}))
     const tz = typeof body?.tz === 'string' ? body.tz : undefined
+    // JWT-bound client → RLS scopes the context read and the insert to this user.
+    const sb = userClient(req)
     const { contextText, activeTasks } = await buildUserData(sb, tz)
 
     if (activeTasks.length === 0) {

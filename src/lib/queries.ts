@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from './supabase'
+import { useAuth } from '@/features/auth/AuthProvider'
 import type {
   Achievement,
   CalendarEvent,
@@ -262,12 +263,15 @@ export function useCalendarEvents() {
   })
 }
 
-/* ---------------- SETTINGS ---------------- */
+/* ---------------- SETTINGS (one row per user, keyed by user_id) ---------------- */
 export function useSettings() {
+  const { user } = useAuth()
+  const uid = user?.id
   return useQuery({
-    queryKey: qk.settings,
-    queryFn: async (): Promise<Settings> => {
-      const { data, error } = await supabase.from('settings').select('*').eq('id', 1).single()
+    queryKey: [...qk.settings, uid],
+    enabled: !!uid,
+    queryFn: async (): Promise<Settings | null> => {
+      const { data, error } = await supabase.from('settings').select('*').eq('user_id', uid!).maybeSingle()
       if (error) throw error
       return data
     },
@@ -276,12 +280,19 @@ export function useSettings() {
 
 export function useUpdateSettings() {
   const qc = useQueryClient()
+  const { user } = useAuth()
+  const uid = user?.id
   return useMutation({
     mutationFn: async (patch: Partial<Settings>): Promise<Settings> => {
-      const { data, error } = await supabase.from('settings').update(patch).eq('id', 1).select().single()
+      // Upsert so the user's row is created on first change and updated after.
+      const { data, error } = await supabase
+        .from('settings')
+        .upsert({ user_id: uid!, ...patch }, { onConflict: 'user_id' })
+        .select()
+        .single()
       if (error) throw error
       return data
     },
-    onSuccess: (data) => qc.setQueryData(qk.settings, data),
+    onSuccess: (data) => qc.setQueryData([...qk.settings, uid], data),
   })
 }

@@ -106,6 +106,17 @@ export function describeToolCall(tc: ProposedToolCall, taskTitleById?: Map<strin
   }
 }
 
+/** Upsert the signed-in user's settings row (created on first change). */
+async function upsertSettings(patch: Partial<Settings>): Promise<void> {
+  const { data: auth } = await supabase.auth.getUser()
+  const uid = auth.user?.id
+  if (!uid) throw new Error('غير مسجّل الدخول')
+  const { error } = await supabase
+    .from('settings')
+    .upsert({ user_id: uid, ...patch }, { onConflict: 'user_id' })
+  if (error) throw error
+}
+
 /** Execute a tool call the user has confirmed. Returns a short result string. */
 export async function executeToolCall(tc: ProposedToolCall): Promise<string> {
   const a = tc.arguments
@@ -184,8 +195,7 @@ export async function executeToolCall(tc: ProposedToolCall): Promise<string> {
       if (a.focus_min != null) patch.pomodoro_focus_min = Number(a.focus_min)
       if (a.break_min != null) patch.pomodoro_break_min = Number(a.break_min)
       if (a.cycles != null) patch.pomodoro_cycles = Number(a.cycles)
-      const { error } = await supabase.from('settings').update(patch).eq('id', 1)
-      if (error) throw error
+      await upsertSettings(patch)
       return 'تم ضبط إعدادات البومودورو.'
     }
     case 'update_settings': {
@@ -196,8 +206,7 @@ export async function executeToolCall(tc: ProposedToolCall): Promise<string> {
       for (const k of boolKeys) if (a[k] != null) (patch as Record<string, unknown>)[k] = Boolean(a[k])
       if (a.theme != null) patch.theme = String(a.theme)
       if (a.timezone != null) patch.timezone = String(a.timezone)
-      const { error } = await supabase.from('settings').update(patch).eq('id', 1)
-      if (error) throw error
+      await upsertSettings(patch)
       return 'تم تحديث الإعدادات.'
     }
     default:

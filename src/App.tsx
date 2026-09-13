@@ -7,6 +7,8 @@ import {
   CheckCircle,
   Gear,
   House,
+  ShieldStar,
+  SignOut,
   Sparkle,
   Target,
   Timer as TimerIcon,
@@ -15,6 +17,8 @@ import {
 import { cn } from '@/lib/cn'
 import { useRealtimeSync } from '@/lib/realtime'
 import { useTimerSync } from '@/features/timer/timerSync'
+import { useAuth } from '@/features/auth/AuthProvider'
+import { LoginPage } from '@/features/auth/LoginPage'
 import { TimerEngine } from '@/features/timer/TimerEngine'
 import { RunningBar } from '@/features/timer/RunningBar'
 import { AISidePanel } from '@/features/ai/AISidePanel'
@@ -27,6 +31,7 @@ import TimerPage from '@/pages/TimerPage'
 import Summary from '@/pages/Summary'
 import Achievements from '@/pages/Achievements'
 import SettingsPage from '@/pages/SettingsPage'
+import AdminPage from '@/pages/AdminPage'
 
 const NAV = [
   { to: '/', label: 'اليوم', icon: House, end: true },
@@ -43,8 +48,29 @@ const NAV = [
 const MOBILE_NAV = [...NAV, { to: '/settings', label: 'الإعدادات', icon: Gear }]
 
 export default function App() {
+  const { loading, session } = useAuth()
+
+  // While the initial session resolves, show a minimal splash (avoids a flash
+  // of the login screen for already-signed-in users).
+  if (loading) {
+    return (
+      <div className="min-h-[100dvh] grid place-items-center">
+        <div className="grid place-items-center h-12 w-12 rounded-2xl bg-accent/20 text-accent-strong animate-pulse">
+          <Sparkle size={24} weight="fill" />
+        </div>
+      </div>
+    )
+  }
+
+  if (!session) return <LoginPage />
+
+  return <AppShell />
+}
+
+function AppShell() {
   useRealtimeSync()
   useTimerSync()
+  const { isAdmin, signOut } = useAuth()
   const [aiOpen, setAiOpen] = useState(false)
 
   return (
@@ -68,6 +94,7 @@ export default function App() {
             <SideLink key={item.to} {...item} />
           ))}
           <SideLink to="/settings" label="الإعدادات" icon={Gear} />
+          {isAdmin && <SideLink to="/admin" label="الإدارة" icon={ShieldStar} />}
         </nav>
 
         <button
@@ -81,6 +108,14 @@ export default function App() {
           <p className="text-xs text-ink-400 mt-1.5 leading-relaxed">
             اسأل عن تقدّمك أو اطلب خطة اليوم
           </p>
+        </button>
+
+        <button
+          onClick={signOut}
+          className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm text-ink-400 hover:bg-white/[0.05] hover:text-ink-100 transition-colors focus-ring"
+        >
+          <SignOut size={20} />
+          <span>تسجيل الخروج</span>
         </button>
       </aside>
 
@@ -96,6 +131,7 @@ export default function App() {
             <Route path="/timer" element={<TimerPage />} />
             <Route path="/summary" element={<Summary />} />
             <Route path="/settings" element={<SettingsPage />} />
+            {isAdmin && <Route path="/admin" element={<AdminPage />} />}
           </Routes>
         </div>
       </main>

@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { BellRinging, CalendarBlank, GoogleLogo, Info, Timer } from '@phosphor-icons/react'
+import { BellRinging, Info, SignOut, Timer, UserCircle } from '@phosphor-icons/react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { Input } from '@/components/ui/form'
 import { useSettings, useUpdateSettings } from '@/lib/queries'
 import { enablePush, isPushEnabled, pushSupported } from '@/lib/push'
-import { connectGoogle, disconnectGoogle, syncNow } from '@/lib/gcal'
-import { supabase, invokeFunction } from '@/lib/supabase'
-import { relative } from '@/lib/dates'
+import { invokeFunction } from '@/lib/supabase'
+import { useAuth } from '@/features/auth/AuthProvider'
 
 export default function SettingsPage() {
   const { data: settings } = useSettings()
@@ -20,6 +18,8 @@ export default function SettingsPage() {
       <PageHeader title="الإعدادات" subtitle="خصّص تجربتك" />
 
       <div className="space-y-4">
+        <AccountSection />
+
         <PomodoroSection />
 
         {/* Notifications */}
@@ -45,20 +45,60 @@ export default function SettingsPage() {
           </Row>
         </Section>
 
-        <CalendarSection />
-
         {/* About */}
         <Section icon={<Info size={18} weight="fill" />} title="حول التطبيق">
           <p className="text-sm text-ink-400 leading-relaxed">
-            منصة تنظيم — نسخة 0.1. تطبيق شخصي بدون تسجيل دخول؛ تتزامن بياناتك بين أجهزتك عبر Supabase.
+            منصة تنظيم — نسخة 0.1. بياناتك خاصة بحسابك وتتزامن بين أجهزتك عبر Supabase عند تسجيل الدخول.
           </p>
           <p className="text-xs text-ink-500 leading-relaxed mt-2">
-            ملاحظة أمان: بما أنه لا يوجد تسجيل دخول، يمكن لأي شخص يملك رابط التطبيق ومفتاحه العام الوصول إلى
-            البيانات. المفاتيح السرية (NVIDIA وGoogle) محفوظة على الخادم فقط.
+            ملاحظة أمان: كل مستخدم يرى بياناته فقط. المفاتيح السرية (مزوّدو الذكاء الاصطناعي) محفوظة على
+            الخادم فقط.
           </p>
         </Section>
       </div>
     </div>
+  )
+}
+
+function AccountSection() {
+  const { user, profile, isAdmin, signOut } = useAuth()
+  const meta = (user?.user_metadata ?? {}) as Record<string, string>
+  const avatar = meta.avatar_url || meta.picture || ''
+  const name = meta.full_name || meta.name || profile?.display_name || user?.email || 'حسابي'
+
+  return (
+    <Section icon={<UserCircle size={18} weight="fill" />} title="الحساب">
+      <div className="flex items-center gap-3">
+        {avatar ? (
+          <img src={avatar} alt="" className="h-14 w-14 rounded-2xl object-cover" referrerPolicy="no-referrer" />
+        ) : (
+          <div className="grid place-items-center h-14 w-14 rounded-2xl bg-accent-faint text-accent-strong text-xl font-semibold">
+            {(name[0] ?? '؟').toUpperCase()}
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="font-medium truncate flex items-center gap-2">
+            {name}
+            {isAdmin && (
+              <span className="text-xs rounded-full bg-accent-faint text-accent-strong px-2 py-0.5">مدير</span>
+            )}
+          </p>
+          <p className="text-sm text-ink-400 truncate" dir="ltr">
+            {user?.email}
+          </p>
+          <p className="text-xs text-ink-500 mt-0.5">
+            المساعد الذكي: {profile?.ai_enabled ? 'مُفعّل' : 'موقوف'}
+          </p>
+        </div>
+      </div>
+
+      <div className="pt-1">
+        <Button variant="ghost" size="sm" onClick={signOut}>
+          <SignOut size={16} />
+          تسجيل الخروج
+        </Button>
+      </div>
+    </Section>
   )
 }
 
@@ -140,71 +180,6 @@ function PushRow() {
         </Button>
       )}
     </Row>
-  )
-}
-
-function CalendarSection() {
-  const { data: settings } = useSettings()
-  const update = useUpdateSettings()
-  const [syncing, setSyncing] = useState(false)
-  const [syncMsg, setSyncMsg] = useState('')
-
-  const { data: cal } = useQuery({
-    queryKey: ['calendar_sync'],
-    queryFn: async () => {
-      const { data } = await supabase.from('calendar_sync').select('*').eq('id', 1).single()
-      return data
-    },
-  })
-  const connected = !!cal?.connected_email
-
-  const doSync = async () => {
-    setSyncing(true)
-    setSyncMsg('')
-    try {
-      const r = await syncNow()
-      setSyncMsg(`تمت المزامنة — أُرسل ${r.pushed}، استُلم ${r.pulled}`)
-    } catch (e) {
-      setSyncMsg(e instanceof Error ? e.message : 'تعذّرت المزامنة')
-    } finally {
-      setSyncing(false)
-    }
-  }
-
-  return (
-    <Section icon={<CalendarBlank size={18} weight="fill" />} title="تقويم Google">
-      {connected ? (
-        <>
-          <Row label="متصل" desc={cal!.connected_email ?? ''}>
-            <Button variant="ghost" size="sm" onClick={() => disconnectGoogle().then(() => location.reload())}>
-              فصل
-            </Button>
-          </Row>
-          <Row label="دفع المهام إلى Google" desc="المهام ذات المواعيد تُصبح أحداثاً">
-            <Switch checked={settings?.cal_push_to_google ?? false} onCheckedChange={(v) => update.mutate({ cal_push_to_google: v })} />
-          </Row>
-          <Row label="سحب أحداث Google" desc="تظهر كأوقات مشغولة في الجدول">
-            <Switch checked={settings?.cal_pull_from_google ?? false} onCheckedChange={(v) => update.mutate({ cal_pull_from_google: v })} />
-          </Row>
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-xs text-ink-500">
-              {cal?.last_synced_at ? `آخر مزامنة ${relative(cal.last_synced_at)}` : 'لم تتم مزامنة بعد'}
-            </span>
-            <Button variant="soft" size="sm" onClick={doSync} disabled={syncing}>
-              {syncing ? 'يزامن…' : 'زامن الآن'}
-            </Button>
-          </div>
-          {syncMsg && <p className="text-xs text-ink-400 mt-1">{syncMsg}</p>}
-        </>
-      ) : (
-        <Row label="غير متصل" desc="اربط تقويمك لمزامنة المهام والأحداث">
-          <Button variant="soft" size="sm" onClick={connectGoogle}>
-            <GoogleLogo size={16} weight="bold" />
-            ربط
-          </Button>
-        </Row>
-      )}
-    </Section>
   )
 }
 
