@@ -25,12 +25,26 @@
 
 ---
 
-## 📸 Inside the Application
+## 📸 Screenshots & Product Gallery
+
+### 1. The Focus & Pomodoro Timer Engine
+*Real-time cross-device sync with persistent background execution across tabs & mobile devices:*
 
 <p align="center">
-  <img src="docs/screenshots/tanzeem-timer.png" alt="Tanzeem Pomodoro & Focus Timer" width="48%" />
-  <img src="docs/screenshots/tanzeem-dashboard.png" alt="Tanzeem Today Dashboard & Smart Plan" width="48%" />
+  <img src="docs/screenshots/tanzeem-timer-en.png" alt="Tanzeem Focus Timer (English)" width="48%" />
+  <img src="docs/screenshots/tanzeem-timer.png" alt="Tanzeem Focus Timer (Arabic)" width="48%" />
 </p>
+
+### 2. Daily Productivity Dashboard
+*Personal stats, priority task backlog, and AI-driven daily plan creation:*
+
+<p align="center">
+  <img src="docs/screenshots/tanzeem-dashboard-en.png" alt="Tanzeem Daily Dashboard (English)" width="48%" />
+  <img src="docs/screenshots/tanzeem-dashboard.png" alt="Tanzeem Daily Dashboard (Arabic)" width="48%" />
+</p>
+
+### 3. Glassmorphic Auth & Portal
+*Zero-friction sign-in with Google OAuth and Magic Links:*
 
 <p align="center">
   <img src="docs/screenshots/tanzeem-overview-en.png" alt="Tanzeem Portal (English View)" width="48%" />
